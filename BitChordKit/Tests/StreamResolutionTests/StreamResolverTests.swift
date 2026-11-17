@@ -6,6 +6,38 @@ import XCTest
 final class StreamResolverTests: XCTestCase {
     private let video = "dQw4w9WgXcQ"
 
+    private actor Compared {
+        var profiles: [String] = []
+        func record(_ id: String) { profiles.append(id) }
+    }
+
+    func testComparisonChecksOtherClientsWithoutReplacingTheRememberedPlaybackURL() async throws {
+        let youtube = FakeYouTube()
+        let resolver = youtube.resolver()
+        let original = try await resolver.resolve(video)
+        let compared = Compared()
+        await resolver.compareMediaClients(videoId: video, maxKbps: 192, mayContinue: { true }) { candidate in
+            await compared.record(candidate.profileId)
+            return "proxy=206 direct=HTTP 403"
+        }
+        let profiles = await compared.profiles
+        XCTAssertTrue(profiles.contains("visionos"))
+        XCTAssertTrue(profiles.contains("android_vr"), "a working first client must not end the comparison")
+        XCTAssertTrue(youtube.playerRequests.contains { $0.client == "IOS" }, "SABR-only clients still get an explicit extraction result")
+        let replay = try await resolver.resolve(video)
+        XCTAssertEqual(replay.url, original.url, "diagnostic does not replace playback's remembered stream")
+    }
+
+    func testComparisonDoesNotExtractAnythingWhenTheTrackIsNoLongerCurrent() async {
+        let youtube = FakeYouTube()
+        let resolver = youtube.resolver()
+        await resolver.compareMediaClients(videoId: video, maxKbps: 192, mayContinue: { false }) { _ in
+            XCTFail("a superseded comparison must not fetch media")
+            return ""
+        }
+        XCTAssertTrue(youtube.server.requests.isEmpty)
+    }
+
     func testResolvesToAProbedAACStreamWithItsHeaders() async throws {
         let youtube = FakeYouTube()
         let stream = try await youtube.resolver().resolve(video)

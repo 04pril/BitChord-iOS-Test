@@ -234,6 +234,11 @@ final class AppModel {
     /// `LISTEN_TOGETHER_SERVER` build default).
     static let defaultPartyServer = "https://bitchord-listen-together.onrender.com"
 
+    @ObservationIgnored private var clientComparisonTask: Task<Void, Never>?
+    @ObservationIgnored private var clientComparisonStarted = false
+    @ObservationIgnored private lazy var clientComparisonRoute: YouTubeMediaRoute? =
+        YTMUWGSettingCompareClients() ? YTMUWGDirectMediaSession().map { YouTubeMediaRoute(directSession: $0) } : nil
+
     @ObservationIgnored private var started = false
     @ObservationIgnored private var observers: [PlaybackEventObserver] = []
     @ObservationIgnored private var trackers: [ChangeTracker] = []
@@ -307,7 +312,7 @@ final class AppModel {
             youTube: youTubeStreams,
             cache: audioCache,
             facts: facts,
-            mediaRoute: YTMUWGDirectMediaSession().map { YouTubeMediaRoute(directSession: $0) },
+            mediaRoute: YTMUWGSettingDirectMedia() ? YTMUWGDirectMediaSession().map { YouTubeMediaRoute(directSession: $0) } : nil,
             request: { ceiling.currentRequest },
             atmosAllowed: { DeviceCodecs.shared.playsDolbyAtmos && Self.atmosSetting.value },
             onRefused: { url, status in Task { await resolver.onPlaybackRefused(url: url, statusCode: status) } }
@@ -480,6 +485,9 @@ final class AppModel {
         let facts = replayFacts
         Task.detached { facts.load() }
         trackers.append(ChangeTracker.track({ [settings] in ReplayText.genresAvailable(settings: settings) }) { facts.genresEnabled = $0 })
+        trackers.append(ChangeTracker.track({ [player] in player.currentSong?.videoId }) { [weak self] videoId in
+            self?.scheduleClientComparison(videoId)
+        })
         // Lyrics load when the track changes, whether or not the player is open.
         currentLyrics.follow(player: player, settings: settings)
         // And the lock screen's animated cover is resolved on the same trigger, for the
@@ -530,6 +538,26 @@ final class AppModel {
         }
         Task.detached(priority: .utility) { [streamResolver] in
             await streamResolver.prewarm()
+        }
+    }
+
+    private func scheduleClientComparison(_ videoId: String?) {
+        clientComparisonTask?.cancel()
+        guard !clientComparisonStarted, let videoId, let route = clientComparisonRoute else { return }
+        clientComparisonTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            guard let self, let song = self.player.currentSong, song.videoId == videoId,
+                  self.player.isPlaying, self.player.position >= 10,
+                  self.player.sources.facts.stream(for: self.player.sources.engineItemID(for: song))?.origin == .youtube else { return }
+            self.clientComparisonStarted = true
+            let resolver = self.streamResolver
+            let maxKbps = self.qualityCeiling.currentRequest.maxKbps ?? Int.max
+            TrackLog.i("ClientCompare", "comparison started; playback remains on its original source", about: videoId)
+            await resolver.compareMediaClients(videoId: videoId, maxKbps: maxKbps, mayContinue: { [weak self] in
+                await MainActor.run { self?.player.currentSong?.videoId == videoId && self?.player.isPlaying == true }
+            }, inspect: { candidate in
+                await route.compare(YouTubeStreamResolving.resolved(candidate), proxySession: BitChordHTTP.session)
+            })
         }
     }
 

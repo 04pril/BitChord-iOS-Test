@@ -622,10 +622,12 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
 
     /// The request's response and body as they arrive, so a range can be handed on before it has
     /// finished downloading. Ending iteration cancels the request.
-    public static func events(for request: URLRequest, session: URLSession, allowRedirects: Bool = true) -> AsyncThrowingStream<Event, Error> {
+    public static func events(for request: URLRequest, session: URLSession, allowRedirects: Bool = true,
+                              googleMediaRedirectsOnly: Bool = false) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             let task = session.dataTask(with: request)
-            task.delegate = EventDelegate(continuation, allowRedirects: allowRedirects)
+            task.delegate = EventDelegate(continuation, allowRedirects: allowRedirects,
+                                          googleMediaRedirectsOnly: googleMediaRedirectsOnly)
             continuation.onTermination = { _ in task.cancel() }
             task.resume()
         }
@@ -635,15 +637,27 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
         let continuation: AsyncThrowingStream<Event, Error>.Continuation
 
         let allowRedirects: Bool
+        let googleMediaRedirectsOnly: Bool
+        private var redirectCount = 0
 
-        init(_ continuation: AsyncThrowingStream<Event, Error>.Continuation, allowRedirects: Bool) {
+        init(_ continuation: AsyncThrowingStream<Event, Error>.Continuation, allowRedirects: Bool, googleMediaRedirectsOnly: Bool) {
             self.continuation = continuation
             self.allowRedirects = allowRedirects
+            self.googleMediaRedirectsOnly = googleMediaRedirectsOnly
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                         newRequest: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            redirectCount += 1
+            if googleMediaRedirectsOnly {
+                guard redirectCount <= 3, let url = newRequest.url,
+                      Self.isGoogleMediaURL(url) else { completionHandler(nil); return }
+            }
             completionHandler(allowRedirects ? newRequest : nil)
+        }
+
+        static func isGoogleMediaURL(_ url: URL) -> Bool {
+            HTTPAudioSource.isGoogleMediaURL(url)
         }
 
         func urlSession(
@@ -688,6 +702,12 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
 
     static func queryValue(_ name: String, in url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == name }?.value
+    }
+
+    static func isGoogleMediaURL(_ url: URL) -> Bool {
+        guard url.scheme == "https", url.user == nil, url.password == nil,
+              url.port == nil || url.port == 443, let host = url.host()?.lowercased() else { return false }
+        return host == "googlevideo.com" || host.hasSuffix(".googlevideo.com")
     }
 
     static let category = "AudioCache"

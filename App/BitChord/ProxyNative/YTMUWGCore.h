@@ -41,6 +41,8 @@ BOOL YTMUWGSaveConnection(NSString *kind, NSString *_Nullable host, NSString *_N
 NSString *YTMUWGActiveKind(void); // kind applied in this launch, or @"" when inactive
 BOOL YTMUWGSettingForceNativeStack(void);
 BOOL YTMUWGSettingDirectMedia(void);
+BOOL YTMUWGSettingCompareClients(void);
+void YTMUWGSetSettingCompareClients(BOOL enabled);
 void YTMUWGSetSettingDirectMedia(BOOL enabled);
 NSURLSession *_Nullable YTMUWGDirectMediaSession(void);
 void YTMUWGSetSettingForceNativeStack(BOOL enabled);

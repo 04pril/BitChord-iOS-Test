@@ -46,11 +46,29 @@ public actor YouTubeMediaRoute {
         TrackLog.i("MediaRoute", "proxy fallback: \(reason)")
     }
 
-    private static func test(_ stream: ResolvedStream, session: URLSession, limit: Duration) async -> String {
+    /// Diagnostic probes never select a playback route or mutate its remembered decisions.
+    public func compare(_ stream: ResolvedStream, proxySession: URLSession) async -> String {
+        guard stream.origin == .youtube, !stream.isHLS,
+              HTTPAudioSource.isGoogleMediaURL(stream.url) else { return "skipped=ineligible URL" }
+        let proxy = await Self.test(stream, session: proxySession, limit: .seconds(3), allowGoogleRedirects: true)
+        guard !Task.isCancelled else { return "cancelled" }
+        let direct = await Self.test(stream, session: session, limit: .seconds(3), allowGoogleRedirects: true)
+        guard !Task.isCancelled else { return "cancelled" }
+        let length = stream.contentLength ?? HTTPAudioSource.declaredLength(of: stream.url) ?? 0
+        let tail: String
+        if direct == "206", length > 32 * 1024 {
+            tail = await Self.test(stream, session: session, limit: .seconds(3), allowGoogleRedirects: true,
+                                   offset: length - 16 * 1024)
+        } else { tail = "not tested" }
+        return "proxy=\(proxy) direct=\(direct) directTail=\(tail)"
+    }
+
+    private static func test(_ stream: ResolvedStream, session: URLSession, limit: Duration,
+                             allowGoogleRedirects: Bool = false, offset: Int64? = nil) async -> String {
         let length = stream.contentLength ?? HTTPAudioSource.declaredLength(of: stream.url)
         let probeSize: Int64 = 16 * 1024
         let boundary: Int64 = 1024 * 1024
-        let start = (length ?? 0) >= boundary + probeSize ? boundary : 0
+        let start = offset ?? ((length ?? 0) >= boundary + probeSize ? boundary : 0)
         let count = min(probeSize, length ?? probeSize)
         guard count > 0 else { return "invalid length" }
         var request = URLRequest(url: stream.url)
@@ -62,7 +80,9 @@ public actor YouTubeMediaRoute {
             group.addTask {
                 do {
                     var received: Int64 = 0
-                    for try await event in HTTPAudioSource.events(for: probeRequest, session: session, allowRedirects: false) {
+                    for try await event in HTTPAudioSource.events(for: probeRequest, session: session,
+                                                                  allowRedirects: allowGoogleRedirects,
+                                                                  googleMediaRedirectsOnly: allowGoogleRedirects) {
                         switch event {
                         case .response(let http):
                             guard http.statusCode == 206 else { return "HTTP \(http.statusCode)" }

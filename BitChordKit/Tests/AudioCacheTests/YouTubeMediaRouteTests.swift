@@ -4,6 +4,48 @@ import BitChordTestSupport
 @testable import AudioCache
 
 final class YouTubeMediaRouteTests: XCTestCase {
+    func testDiagnosticComparisonReadsProxyDirectAndTailWithoutSelectingPlaybackRoute() async throws {
+        let body = patternData(count: 1_200_000)
+        let url = googlevideoURL(client: "VISIONOS", length: body.count)
+        let direct = RangeServer()
+        let proxy = RangeServer()
+        direct.host(body, at: url)
+        proxy.host(body, at: url)
+        let route = YouTubeMediaRoute(directSession: direct.session)
+        let resolved = stream(url, length: body.count)
+        let report = await route.compare(resolved, proxySession: proxy.session)
+        XCTAssertEqual(report, "proxy=206 direct=206 directTail=206")
+        XCTAssertEqual(proxy.ranges(), [1_048_576..<1_064_960])
+        XCTAssertEqual(direct.ranges(), [1_048_576..<1_064_960, 1_183_616..<1_200_000])
+        direct.refuse(url)
+        let decision = await route.usesDirect(resolved)
+        XCTAssertFalse(decision, "comparison must not install its success as a playback decision")
+    }
+
+    func testDiagnosticReportSeparatesWorkingProxyFromRefusedDirectRoute() async throws {
+        let body = patternData(count: 100_000)
+        let url = googlevideoURL(client: "VISIONOS", length: body.count)
+        let direct = RangeServer()
+        let proxy = RangeServer()
+        direct.refuse(url)
+        proxy.host(body, at: url)
+        let route = YouTubeMediaRoute(directSession: direct.session)
+        let report = await route.compare(stream(url, length: body.count), proxySession: proxy.session)
+        XCTAssertEqual(report, "proxy=206 direct=HTTP 403 directTail=not tested")
+        XCTAssertEqual(direct.requests.count, 1)
+    }
+
+    func testRedirectAllowListRejectsOtherHostsCredentialsAndPlainHTTP() {
+        for raw in ["https://rr1.googlevideo.com/file", "https://googlevideo.com:443/file"] {
+            XCTAssertTrue(HTTPAudioSource.isGoogleMediaURL(URL(string: raw)!))
+        }
+        for raw in ["https://googlevideo.com.evil.test/file", "https://notgooglevideo.com/file",
+                    "http://rr1.googlevideo.com/file", "https://user:secret@rr1.googlevideo.com/file",
+                    "https://rr1.googlevideo.com:8443/file"] {
+            XCTAssertFalse(HTTPAudioSource.isGoogleMediaURL(URL(string: raw)!))
+        }
+    }
+
     func testVerifiedURLUsesDirectForAudioAndChecksPastTheFirstMiBOnce() async throws {
         let body = patternData(count: 1_200_000)
         let url = googlevideoURL(client: "VISIONOS", length: body.count)

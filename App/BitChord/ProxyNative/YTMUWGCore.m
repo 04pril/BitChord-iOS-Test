@@ -95,6 +95,8 @@ BOOL YTMUWGSettingDirectMedia(void) {
 #endif
     return [SettingsDict()[@"testDirectMedia"] boolValue];
 }
+BOOL YTMUWGSettingCompareClients(void) { return [SettingsDict()[@"testCompareClients"] boolValue]; }
+void YTMUWGSetSettingCompareClients(BOOL enabled) { SetSetting(@"testCompareClients", @(enabled)); }
 void YTMUWGSetSettingDirectMedia(BOOL enabled) { SetSetting(@"testDirectMedia", @(enabled)); }
 
 BOOL YTMUWGSettingForceNativeStack(void) {
@@ -318,7 +320,7 @@ static id (*origDataURLOptions)(id, SEL, id, NSUInteger, NSError **);
 // still go through the original hooks, including when their proxy fails.
 NSURLSession *YTMUWGDirectMediaSession(void) {
     if (!gActive || gBlockAll || ![gKind isEqualToString:YTMUWGKindWireGuard] ||
-        !YTMUWGSettingDirectMedia() || !origEphemeral || !origSessionDelegate || !sSetProxyConfigurations) return nil;
+        (!YTMUWGSettingDirectMedia() && !YTMUWGSettingCompareClients()) || !origEphemeral || !origSessionDelegate || !sSetProxyConfigurations) return nil;
     gBuildingDirectMediaSession = YES;
     @try {
         NSURLSessionConfiguration *c = origEphemeral(NSURLSessionConfiguration.class, @selector(ephemeralSessionConfiguration));

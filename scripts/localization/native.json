@@ -478,5 +478,13 @@
   "playback_queue_preparation_help": {
     "en": "Prepare up to four upcoming tracks. Cache the full next track on Wi-Fi; keep up to 2 MiB of the following tracks. Playback keeps its own addon wait deadline.",
     "ko": "다음 4곡까지 준비합니다. Wi-Fi에서는 바로 다음 곡 전체, 나머지는 앞부분 최대 2MiB를 받습니다. 곡을 눌렀을 때의 애드온 대기 시간은 그대로 적용됩니다."
+  },
+  "WG_COMPARE_CLIENTS": {
+    "en": "Compare YouTube clients (test)",
+    "ko": "YouTube 클라이언트 비교 (테스트)"
+  },
+  "WG_COMPARE_CLIENTS_DETAIL": {
+    "en": "Compares proxy and direct media for one song per launch after 20 seconds of playback. Does not change the playing source. Restart after changing.",
+    "ko": "재생 20초 후 한 곡의 클라이언트별 프록시·직접 연결을 비교합니다. 실행당 한 곡만 검사하며 재생 음원은 바꾸지 않습니다. 변경 후 앱을 다시 열어 주세요."
   }
 }

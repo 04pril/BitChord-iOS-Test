@@ -37,6 +37,7 @@ public actor StreamResolver {
     }
 
     private let configuration: Configuration
+    private let session: URLSession
     private let extractor: InnerTubeStreamExtractor
     private let probe: StreamURLProbe
     private let cipher: StreamCipherSolver?
@@ -85,6 +86,7 @@ public actor StreamResolver {
     ) {
         let visitorStore = visitorData ?? StreamVisitorDataStore(session: session, now: now)
         self.configuration = configuration
+        self.session = session
         self.cipher = cipher
         self.poTokens = poTokens
         self.visitorData = visitorStore
@@ -196,6 +198,43 @@ public actor StreamResolver {
 
     /// The current player's `signatureTimestamp` (for `PlaybackHistoryTracker`), or nil.
     public func signatureTimestamp() async -> Int? { await cipher?.signatureTimestamp() }
+
+    /// Test-only comparison: isolated extractors do not change playback's remembered URL,
+    /// refusal ledger or client ranking. Media is inspected, never substituted into a cache.
+    public func compareMediaClients(
+        videoId: String, maxKbps: Int,
+        mayContinue: @escaping @Sendable () async -> Bool,
+        inspect: @escaping @Sendable (ResolvedYouTubeStream) async -> String
+    ) async {
+        guard YouTubeVideoId.isValid(videoId) else { return }
+        let profiles: [StreamClientProfile] = [.visionOS, .ios, .androidVR, .webEmbedded, .webRemix, .tvSimply, .mweb]
+        for profile in profiles {
+            guard !Task.isCancelled, await mayContinue() else { break }
+            let started = ContinuousClock.now
+            TrackLog.i("ClientCompare", "client=\(profile.id) phase=extract started", about: videoId)
+            let isolated = InnerTubeStreamExtractor(
+                session: session, catalog: [profile], visitorData: visitorData, cipher: cipher,
+                poTokens: poTokens, auth: auth, language: configuration.language, now: now
+            )
+            let outcome = await isolated.extract(videoId: videoId, selection: .playback(maxKbps: maxKbps), skip: [])
+            guard !Task.isCancelled, await mayContinue() else { break }
+            switch outcome {
+            case .found(let found):
+                let result = await inspect(found.resolved)
+                TrackLog.i("ClientCompare",
+                           "client=\(profile.id) itag=\(found.itag) \(result) elapsed=\(TrackLog.ms(since: started))ms",
+                           about: videoId)
+            case .exhausted(_, _, let detail):
+                // The extractor's detailed error may contain signed URLs. Keep the summary
+                // to known states; its regular diagnostics already perform URL redaction.
+                let reason = detail.contains("no usable format") ? "no usable AAC format"
+                    : detail.contains("bot check") ? "bot check" : "no candidate"
+                TrackLog.i("ClientCompare", "client=\(profile.id) extract=\(reason) elapsed=\(TrackLog.ms(since: started))ms", about: videoId)
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        TrackLog.i("ClientCompare", "comparison \(Task.isCancelled ? "cancelled" : "finished")", about: videoId)
+    }
 
     // MARK: - Download
 

@@ -100,6 +100,7 @@ actor InnerTubeStreamExtractor {
         }
         var index = 0
         while index < queue.count {
+            if Task.isCancelled { break }
             let profile = queue[index]
             if profile.usesPlayerScript && cipher == nil {
                 index += 1
@@ -109,6 +110,7 @@ actor InnerTubeStreamExtractor {
             do {
                 response = try await requestPlayer(profile, videoId: videoId, auth: authSession)
             } catch {
+                if Task.isCancelled { break }
                 details.append("\(profile.id): \(error.localizedDescription)")
                 streamLog.warning("\(profile.id, privacy: .public) player request failed for \(videoId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 // No network, or one that stopped answering: every other client would fail the
