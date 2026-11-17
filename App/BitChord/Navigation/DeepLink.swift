@@ -30,7 +30,7 @@ enum DeepLink: Hashable {
         if let invite = JamInviteLink.parseInvite(url.absoluteString) {
             return .party(code: invite.code, server: invite.serverUrl)
         }
-        if url.scheme?.lowercased() == "bitchord" {
+        if url.scheme?.lowercased() == SharedConstants.urlScheme {
             return parseAppScheme(url)
         }
         return MusicLink.parse(url).map(DeepLink.init(request:))
@@ -65,7 +65,7 @@ enum DeepLink: Hashable {
         let path = url.path(percentEncoded: false).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         switch host {
         case "open":
-            if let raw = query("url"), let inner = URL(string: raw), inner.scheme?.lowercased() != "bitchord" { return parse(inner) }
+            if let raw = query("url"), let inner = URL(string: raw), inner.scheme?.lowercased() != SharedConstants.urlScheme { return parse(inner) }
             if let text = query("text") { return parse(sharedText: text) }
             return nil
         case "watch", "track", "play":

@@ -27,7 +27,9 @@ import Observation
 @Observable
 public final class AppSettings {
     /// The app's instance: `UserDefaults.standard` and the Keychain.
-    public static let shared = AppSettings()
+    public static let shared = AppSettings(
+        diagnosticLogDefault: Bundle.main.object(forInfoDictionaryKey: "BitChordTestLoggingDefault") as? Bool ?? false
+    )
 
     // MARK: Constants
 
@@ -54,6 +56,7 @@ public final class AppSettings {
     // MARK: Storage
 
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let diagnosticLogDefault: Bool
     @ObservationIgnored private let credentials: CredentialStoring
     @ObservationIgnored private let bundledLastfmAPIKey: String
     @ObservationIgnored private let bundledLastfmSecret: String
@@ -311,7 +314,7 @@ public final class AppSettings {
         didSet { write(.showNerdStats, showNerdStats) }
     }
 
-    /// Keep a log file on this device (``DiagnosticLog``). On by default; off deletes it.
+    /// Keep a log file on this device. Test builds may opt into an enabled default.
     public var keepDiagnosticLog: Bool = false {
         didSet { write(.keepDiagnosticLog, keepDiagnosticLog) }
     }
@@ -714,9 +717,11 @@ public final class AppSettings {
         defaults: UserDefaults = .standard,
         credentials: CredentialStoring = KeychainStore(),
         bundledLastfmAPIKey: String = "",
-        bundledLastfmSecret: String = ""
+        bundledLastfmSecret: String = "",
+        diagnosticLogDefault: Bool = false
     ) {
         self.defaults = defaults
+        self.diagnosticLogDefault = diagnosticLogDefault
         self.credentials = credentials
         self.bundledLastfmAPIKey = bundledLastfmAPIKey
         self.bundledLastfmSecret = bundledLastfmSecret
@@ -981,7 +986,7 @@ public final class AppSettings {
 
         themeMode = readEnum(.themeMode, default: .dark)
         showNerdStats = readBool(.showNerdStats, default: false)
-        keepDiagnosticLog = readBool(.keepDiagnosticLog, default: false)
+        keepDiagnosticLog = readBool(.keepDiagnosticLog, default: diagnosticLogDefault)
         reduceAnimation = readBool(.reduceAnimation, default: false)
         reduceDynamicBlur = readBool(.reduceDynamicBlur, default: false)
         hideVolumeBar = readBool(.hideVolumeBar, default: false)

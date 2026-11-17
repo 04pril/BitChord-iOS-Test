@@ -27,6 +27,16 @@ final class AppSettingsTests: XCTestCase {
 
     // MARK: Defaults
 
+    func testTestBuildLoggingStartsEnabledButKeepsTheUsersOffChoice() {
+        let test = AppSettings(defaults: defaults, credentials: credentials, diagnosticLogDefault: true)
+        XCTAssertTrue(test.keepDiagnosticLog)
+        test.keepDiagnosticLog = false
+        test.reload()
+        XCTAssertFalse(test.keepDiagnosticLog)
+        let restored = AppSettings(defaults: defaults, credentials: credentials, diagnosticLogDefault: true)
+        XCTAssertFalse(restored.keepDiagnosticLog)
+    }
+
     func testAFreshInstallHasAndroidsDefaults() {
         let s = makeSettings()
         XCTAssertEqual(s.audioQualityWifi, .lossless)

@@ -6,10 +6,10 @@ enum SharedConstants {
     static var appGroup: String { SharedAppGroup.selection?.identifier ?? SharedAppGroup.declaredIdentifier }
 
     /// The app's own URL scheme (`CFBundleURLSchemes` in BitChord-Info.plist).
-    static let urlScheme = "bitchord"
+    static let urlScheme = "bitchord-test"
 
     /// Opens the full player: the widget's tap target (Android's `PlayerDeepLink.EXTRA_OPEN_PLAYER`).
-    static let openPlayerURL = URL(string: "bitchord://player")!
+    static let openPlayerURL = URL(string: "\(urlScheme)://player")!
 
     /// The class the app registers under this Objective-C name to serve the widget's buttons and
     /// Siri. Looked up at run time because the widget and Share Extension are compiled from the same
