@@ -32,6 +32,7 @@ final class PlaybackSourceFactory {
     /// The HTTP session streams and read-ahead fetch through. The app passes its shared session;
     /// tests inject one whose protocol classes answer without a network.
     let session: URLSession
+    let mediaRoute: YouTubeMediaRoute?
     /// What to ask for right now: the per-network ceiling (PlaybackPolicy's `currentRequest`).
     let request: @Sendable () -> StreamRequest
     /// Whether a source outranks YouTube for `request` (Sources' `canSubstituteForYouTube`).
@@ -134,6 +135,7 @@ final class PlaybackSourceFactory {
         cache: AudioStreamCache?,
         facts: StreamFactsBook,
         session: URLSession = BitChordHTTP.session,
+        mediaRoute: YouTubeMediaRoute? = nil,
         request: @escaping @Sendable () -> StreamRequest,
         atmosAllowed: @escaping @Sendable () -> Bool = { DeviceCodecs.shared.playsDolbyAtmos },
         onRefused: (@Sendable (URL, Int) -> Void)? = nil
@@ -143,6 +145,7 @@ final class PlaybackSourceFactory {
         self.cache = cache
         self.facts = facts
         self.session = session
+        self.mediaRoute = mediaRoute
         self.request = request
         self.atmosAllowed = atmosAllowed
         self.onRefused = onRefused
@@ -383,6 +386,7 @@ final class PlaybackSourceFactory {
         let cache = self.cache
         let facts = self.facts
         let session = self.session
+        let mediaRoute = self.mediaRoute
         let onRefused = self.onRefused
         // The id the row will have once it is on this copy, not the one it has now.
         let itemID = "\(Self.itemID(for: song))#\(tag)"
@@ -416,7 +420,7 @@ final class PlaybackSourceFactory {
             }
             guard let cache else { return PlaybackSourceFactory.plainAsset(for: stream) }
             if !silent { playingKeys.set(key.rawValue, for: song.videoId, item: itemID) }
-            return cache.makeAsset(for: key, stream: stream, session: session, refresh: nil, onRefused: onRefused)
+            return cache.makeAsset(for: key, stream: stream, session: session, refresh: nil, mediaRoute: mediaRoute, onRefused: onRefused)
         }
     }
 
@@ -600,6 +604,7 @@ final class PlaybackSourceFactory {
         let cache = self.cache
         let facts = self.facts
         let session = self.session
+        let mediaRoute = self.mediaRoute
         let request = self.request
         let atmosAllowed = self.atmosAllowed
         let onRefused = self.onRefused
@@ -672,7 +677,7 @@ final class PlaybackSourceFactory {
                         factory?.learnLoudness(of: song.videoId)
                         factory?.onOpenedFromDisk?(itemID)
                     }
-                    let lazy = HTTPAudioSource(session: session, onRefused: onRefused) {
+                    let lazy = HTTPAudioSource(session: session, mediaRoute: mediaRoute, onRefused: onRefused) {
                         try await resolve(wanted)
                     }
                     return (cache.makeAsset(for: cachedKey, source: lazy), nil)
@@ -877,7 +882,7 @@ final class PlaybackSourceFactory {
                 refresh = foundAgain
             }
             playingKeys.set(key.rawValue, for: song.videoId, item: itemID)
-            return (cache.makeAsset(for: key, stream: stream, session: session, refresh: refresh, onRefused: onRefused), stream)
+            return (cache.makeAsset(for: key, stream: stream, session: session, refresh: refresh, mediaRoute: mediaRoute, onRefused: onRefused), stream)
         }
     }
 
@@ -921,6 +926,7 @@ final class PlaybackSourceFactory {
         let warmer = youTube ?? resolver
         let onRefused = self.onRefused
         let session = self.session
+        let mediaRoute = self.mediaRoute
         let atmos = atmosAllowed()
         let readAheadStreams = self.readAheadStreams
         let cache = self.cache
@@ -980,7 +986,7 @@ final class PlaybackSourceFactory {
                         // plays the sources' copy from the first byte.
                         guard let cache, !stream.belowRequest else { return }
                         if stream.origin == .youtube {
-                            let source = HTTPAudioSource(stream: stream, session: session, onRefused: onRefused)
+                            let source = HTTPAudioSource(stream: stream, session: session, mediaRoute: mediaRoute, onRefused: onRefused)
                             await cache.warmRange(key, source: source, range: 0..<PlaybackSourceFactory.openingBytes)
                         } else if let source = await copySource(stream) {
                             await cache.warmRange(copyKey, source: source, range: 0..<PlaybackSourceFactory.openingBytes)
@@ -1055,7 +1061,7 @@ final class PlaybackSourceFactory {
             }
             // YouTube's next track: its first bytes wait for the playing track's start too, not just
             // read-ahead's own 2 s grace.
-            let source = HTTPAudioSource(session: session, onRefused: onRefused) {
+            let source = HTTPAudioSource(session: session, mediaRoute: mediaRoute, onRefused: onRefused) {
                 await holdForStart()
                 return try await resolver.resolveStream(for: song, request: request)
             }

@@ -14,6 +14,7 @@ typedef NS_ENUM(NSInteger, WGCheckRow) { WGCheckCountry, WGCheckConnection, WGCh
 
 @interface YTMUWGSettingsController ()
 @property (nonatomic, strong) UISwitch *enabledSwitch;
+@property (nonatomic, strong) UISwitch *directMediaSwitch;
 @property (nonatomic, strong) UISwitch *forceSwitch;
 @property (nonatomic, strong) UISegmentedControl *kindControl;
 @property (nonatomic, strong) UITextField *hostField, *portField, *userField, *passField;
@@ -33,6 +34,8 @@ typedef NS_ENUM(NSInteger, WGCheckRow) { WGCheckCountry, WGCheckConnection, WGCh
     [super viewDidLoad];
     self.title = WGLOC(@"WG_TITLE", @"In-app WireGuard / Proxy");
     self.checks = [NSMutableDictionary dictionary];
+    self.directMediaSwitch = [UISwitch new];
+    [self.directMediaSwitch addTarget:self action:@selector(toggleDirectMedia:) forControlEvents:UIControlEventValueChanged];
     self.enabledSwitch = [UISwitch new];
     [self.enabledSwitch addTarget:self action:@selector(toggleEnabled:) forControlEvents:UIControlEventValueChanged];
     self.forceSwitch = [UISwitch new];
@@ -78,6 +81,7 @@ static NSArray<NSString *> *Kinds(void) { return @[YTMUWGKindWireGuard, YTMUWGKi
     self.kindControl.selectedSegmentIndex = index == NSNotFound ? 0 : (NSInteger)index;
     self.profile = YTMUWGStoredProfileSummary();
     self.enabledSwitch.on = YTMUWGSettingEnabled();
+    self.directMediaSwitch.on = YTMUWGSettingDirectMedia();
     self.forceSwitch.on = YTMUWGSettingForceNativeStack();
     [self.tableView reloadData];
 }
@@ -133,7 +137,7 @@ static NSArray<NSString *> *Kinds(void) { return @[YTMUWGKindWireGuard, YTMUWGKi
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     switch (section) {
-        case WGSectionTunnel: return 3;
+        case WGSectionTunnel: return self.selectedWireGuard ? 4 : 3;
         case WGSectionServer:
             if (!self.selectedWireGuard) return 5; // host, port, user, password, save
             return [YTMUWGSettingKind() isEqualToString:YTMUWGKindWireGuard] ? 0 : 1; // save
@@ -200,6 +204,10 @@ static NSArray<NSString *> *Kinds(void) { return @[YTMUWGKindWireGuard, YTMUWGKi
                 [self.kindControl.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
                 [self.kindControl.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8],
                 [self.kindControl.leadingAnchor constraintEqualToAnchor:cell.contentView.layoutMarginsGuide.leadingAnchor]]];
+        } else if (row == 3) {
+            cell.textLabel.text = WGLOC(@"WG_DIRECT_MEDIA_TEST", @"Direct audio (test)");
+            cell.detailTextLabel.text = WGLOC(@"WG_DIRECT_MEDIA_TEST_DETAIL", @"Only YouTube audio may use your device’s connection. Falls back to WireGuard if refused. Restart after changing.");
+            cell.accessoryView = self.directMediaSwitch;
         } else {
             cell.textLabel.text = WGLOC(@"WG_STATUS", @"Status");
             cell.detailTextLabel.text = [self stateLine];
@@ -301,6 +309,11 @@ static NSArray<NSString *> *Kinds(void) { return @[YTMUWGKindWireGuard, YTMUWGKi
     [self reloadState];
     if (YTMUWGSettingEnabled() || YTMUWGActiveThisLaunch()) [self offerRestart];
     else [self alert:WGLOC(@"WG_SAVED", @"Saved") message:WGLOC(@"WG_SAVED_ENABLE", @"Turn on \"Use this connection in the app\", then restart the app.")];
+}
+
+- (void)toggleDirectMedia:(UISwitch *)sender {
+    YTMUWGSetSettingDirectMedia(sender.on);
+    [self offerRestart];
 }
 
 - (void)toggleEnabled:(UISwitch *)sender {

@@ -40,6 +40,9 @@ BOOL YTMUWGSaveConnection(NSString *kind, NSString *_Nullable host, NSString *_N
                           NSString *_Nullable username, NSString *_Nullable password, NSString *_Nullable *_Nullable reason);
 NSString *YTMUWGActiveKind(void); // kind applied in this launch, or @"" when inactive
 BOOL YTMUWGSettingForceNativeStack(void);
+BOOL YTMUWGSettingDirectMedia(void);
+void YTMUWGSetSettingDirectMedia(BOOL enabled);
+NSURLSession *_Nullable YTMUWGDirectMediaSession(void);
 void YTMUWGSetSettingForceNativeStack(BOOL enabled);
 
 BOOL YTMUWGIsSupportedOS(void);

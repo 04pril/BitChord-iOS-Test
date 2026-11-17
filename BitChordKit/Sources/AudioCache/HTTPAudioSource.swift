@@ -95,6 +95,7 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
     }
 
     fileprivate let session: URLSession
+    private let mediaRoute: YouTubeMediaRoute?
     private let chunkBytes: Int64
     private let resolver: Resolver?
     fileprivate let onRefused: RefusalHandler?
@@ -116,9 +117,11 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
         session: URLSession = BitChordHTTP.session,
         chunkBytes: Int64 = HTTPAudioSource.defaultChunkBytes,
         refresh: Resolver? = nil,
+        mediaRoute: YouTubeMediaRoute? = nil,
         onRefused: RefusalHandler? = nil
     ) {
         self.session = session
+        self.mediaRoute = mediaRoute
         self.chunkBytes = max(1, chunkBytes)
         self.resolver = refresh
         self.onRefused = onRefused
@@ -130,10 +133,12 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
     public init(
         session: URLSession = BitChordHTTP.session,
         chunkBytes: Int64 = HTTPAudioSource.defaultChunkBytes,
+        mediaRoute: YouTubeMediaRoute? = nil,
         onRefused: RefusalHandler? = nil,
         resolve: @escaping Resolver
     ) {
         self.session = session
+        self.mediaRoute = mediaRoute
         self.chunkBytes = max(1, chunkBytes)
         self.resolver = resolve
         self.onRefused = onRefused
@@ -246,6 +251,7 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
             let requestedEnd: Int64
             let requestedAt: ContinuousClock.Instant
             let requestNumber: Int
+            let direct: Bool
             /// Where this request's bytes stop being wanted.
             var end: Int64
             var statusCode: Int?
@@ -298,12 +304,14 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
                 do {
                     event = try await iterator.next()
                 } catch {
+                    if await fallbackIfDirect("stream error") { continue }
                     closeChunk(outcome: Task.isCancelled ? "cancelled" : "stream error")
                     throw error
                 }
                 events = iterator
                 guard let event else {
                     // The request ended; a short one is reopened for the rest on the next pass.
+                    if await fallbackIfDirect("short direct read") { continue }
                     let delivered = chunk?.delivered ?? 0
                     closeChunk(outcome: "response ended (\(delivered) bytes delivered)")
                     emptyInARow = delivered == 0 ? emptyInARow + 1 : 0
@@ -312,12 +320,20 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
                 }
                 switch event {
                 case .response(let response):
-                    try await handle(response)
+                    do {
+                        try await handle(response)
+                    } catch {
+                        if await fallbackIfDirect("HTTP \(response.statusCode) or invalid range") { continue }
+                        throw error
+                    }
                 case .data(let raw):
                     if var current = chunk {
                         current.receivedBytes += Int64(raw.count)
                         if !current.loggedFirstBody && !raw.isEmpty {
                             current.loggedFirstBody = true
+                            if current.direct {
+                                TrackLog.i("MediaRoute", "direct media bytes received at offset \(current.start) in \(TrackLog.ms(since: current.requestedAt))ms")
+                            }
                             TrackLog.i(HTTPAudioSource.category,
                                        "HTTP range #\(current.requestNumber) first body after \(TrackLog.ms(since: current.requestedAt))ms (\(raw.count) B)",
                                        about: TrackLog.currentTrack)
@@ -335,6 +351,7 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
                         opening = Data()
                         if HTTPAudioSource.isWebPage(opening: piece) {
                             let host = chunk?.url.host() ?? "stream"
+                            if await fallbackIfDirect("invalid audio body") { continue }
                             source.forgetRefusedLength()
                             closeChunk(outcome: "web page refused")
                             throw AudioCacheError.badResponse("a web page, not audio (a captive portal?) from \(host)")
@@ -360,13 +377,31 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
             }
             let openEnded = chunkEnd == .max
             request.setValue(openEnded ? "bytes=\(position)-" : "bytes=\(position)-\(chunkEnd - 1)", forHTTPHeaderField: "Range")
+            let route = source.mediaRoute
+            let direct = await route?.usesDirect(stream) == true
+            try Task.checkCancellation()
+            if direct {
+                request.timeoutInterval = 3
+                request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            }
             let requestNumber = source.logRequest(position..<chunkEnd)
             chunk = Chunk(url: stream.url, start: position, requestedEnd: chunkEnd, requestedAt: .now,
-                          requestNumber: requestNumber, end: chunkEnd)
+                          requestNumber: requestNumber, direct: direct, end: chunkEnd)
             TrackLog.i(HTTPAudioSource.category,
                        "HTTP range #\(requestNumber) requested [\(position), \(chunkEnd == .max ? "end" : String(chunkEnd)))",
                        about: TrackLog.currentTrack)
-            events = HTTPAudioSource.events(for: request, session: source.session).makeAsyncIterator()
+            if route != nil, stream.origin == .youtube {
+                TrackLog.i("MediaRoute", "media range #\(requestNumber) route=\(direct ? "direct" : "proxy") offset=\(position)")
+            }
+            let mediaSession = direct ? (route?.session ?? source.session) : source.session
+            events = HTTPAudioSource.events(for: request, session: mediaSession, allowRedirects: !direct).makeAsyncIterator()
+        }
+
+        private func fallbackIfDirect(_ reason: String) async -> Bool {
+            guard !Task.isCancelled, let current = chunk, current.direct, let route = source.mediaRoute else { return false }
+            closeChunk(outcome: "direct route failed; retry through proxy")
+            await route.fallBack(current.url, reason: reason)
+            return true
         }
 
         /// Dropping the iterator is what cancels an unfinished request.
@@ -390,6 +425,13 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
             TrackLog.i(HTTPAudioSource.category,
                        "HTTP range #\(current.requestNumber) headers in \(TrackLog.ms(since: current.requestedAt))ms (\(response.statusCode))",
                        about: TrackLog.currentTrack)
+            if current.direct {
+                // Try the original proxy before sending a refusal to the resolver, and do not
+                // let an unsupported direct response change shared range/length state.
+                guard response.statusCode == 206, response.mimeType?.hasPrefix("audio/") == true else {
+                    throw AudioCacheError.badResponse("direct audio range not accepted")
+                }
+            }
             // A captive portal answers a plain-HTTP stream with its sign-in page. Taken as audio,
             // the page became the whole track on disk, served without asking again.
             if (200..<300).contains(response.statusCode), HTTPAudioSource.isWebPage(response) {
@@ -580,10 +622,10 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
 
     /// The request's response and body as they arrive, so a range can be handed on before it has
     /// finished downloading. Ending iteration cancels the request.
-    public static func events(for request: URLRequest, session: URLSession) -> AsyncThrowingStream<Event, Error> {
+    public static func events(for request: URLRequest, session: URLSession, allowRedirects: Bool = true) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             let task = session.dataTask(with: request)
-            task.delegate = EventDelegate(continuation)
+            task.delegate = EventDelegate(continuation, allowRedirects: allowRedirects)
             continuation.onTermination = { _ in task.cancel() }
             task.resume()
         }
@@ -592,8 +634,16 @@ public final class HTTPAudioSource: AudioRangeDataSource, @unchecked Sendable {
     private final class EventDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let continuation: AsyncThrowingStream<Event, Error>.Continuation
 
-        init(_ continuation: AsyncThrowingStream<Event, Error>.Continuation) {
+        let allowRedirects: Bool
+
+        init(_ continuation: AsyncThrowingStream<Event, Error>.Continuation, allowRedirects: Bool) {
             self.continuation = continuation
+            self.allowRedirects = allowRedirects
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            completionHandler(allowRedirects ? newRequest : nil)
         }
 
         func urlSession(

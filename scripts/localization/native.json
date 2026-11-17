@@ -1,4 +1,12 @@
 {
+  "WG_DIRECT_MEDIA_TEST": {
+    "en": "Direct audio (test)",
+    "ko": "음원만 직접 연결 (테스트)"
+  },
+  "WG_DIRECT_MEDIA_TEST_DETAIL": {
+    "en": "Only YouTube audio may use your device’s connection. Falls back to WireGuard if refused. Restart after changing.",
+    "ko": "YouTube 음원만 기기의 인터넷으로 직접 받아봅니다. 거부되면 WireGuard로 이어받습니다. 변경 후 앱을 다시 열어 주세요."
+  },
   "NP_UNKNOWN": {
     "en": "Signed App ID unavailable: match unverified",
     "ko": "서명 App ID를 읽지 못함: 일치 여부 미확인"

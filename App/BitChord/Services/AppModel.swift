@@ -307,6 +307,7 @@ final class AppModel {
             youTube: youTubeStreams,
             cache: audioCache,
             facts: facts,
+            mediaRoute: YTMUWGDirectMediaSession().map { YouTubeMediaRoute(directSession: $0) },
             request: { ceiling.currentRequest },
             atmosAllowed: { DeviceCodecs.shared.playsDolbyAtmos && Self.atmosSetting.value },
             onRefused: { url, status in Task { await resolver.onPlaybackRefused(url: url, statusCode: status) } }

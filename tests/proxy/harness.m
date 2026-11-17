@@ -317,6 +317,23 @@ static void FailClosedChecks(void) {
     puts("PASS dead WireGuard peer: requests fail, nothing sent directly");
 }
 
+static void DirectMediaChecks(void) {
+    NSString *url = Env(@"YTMUWG_TEST_DIRECT_URL");
+    NSURLSession *media = YTMUWGDirectMediaSession();
+    CHECK(media != nil, "direct media session failed to initialize");
+    CHECK([[media.configuration valueForKey:@"proxyConfigurations"] count] == 0, "media session was re-proxied");
+
+    NSURLSession *api = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.ephemeralSessionConfiguration];
+    CHECK([[api.configuration valueForKey:@"proxyConfigurations"] count] == 1, "ordinary API session lost its proxy");
+    Result r = Get(api, @"http://fixture.test/", nil);
+    CHECK(r.status == 200 && [r.body isEqualToString:@"through-tunnel"], "ordinary API session did not reach the tunnel fixture");
+    r = Get(media, url, nil);
+    CHECK(r.status == 200, "direct media session couldn't reach the direct-only origin");
+    [media invalidateAndCancel];
+    [api invalidateAndCancel];
+    puts("PASS media uses direct route; ordinary API still uses WireGuard");
+}
+
 static NSDictionary *LookupSync(NSString *host) {
     __block NSDictionary *result;
     dispatch_semaphore_t done = dispatch_semaphore_create(0);
@@ -426,6 +443,7 @@ int main(int argc, const char *argv[]) {
         else if ([mode isEqualToString:@"failclosed"]) FailClosedChecks();
         else if ([mode isEqualToString:@"live"]) LiveChecks();
         else if ([mode isEqualToString:@"external"]) ExternalChecks();
+        else if ([mode isEqualToString:@"direct-media"]) DirectMediaChecks();
         else CHECK(NO, "unknown mode %s", mode.UTF8String);
     }
     return 0;

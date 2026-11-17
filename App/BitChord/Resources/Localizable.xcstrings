@@ -112610,6 +112610,38 @@
         }
       }
     },
+    "WG_DIRECT_MEDIA_TEST" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Direct audio (test)"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "음원만 직접 연결 (테스트)"
+          }
+        }
+      }
+    },
+    "WG_DIRECT_MEDIA_TEST_DETAIL" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only YouTube audio may use your device’s connection. Falls back to WireGuard if refused. Restart after changing."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "YouTube 음원만 기기의 인터넷으로 직접 받아봅니다. 거부되면 WireGuard로 이어받습니다. 변경 후 앱을 다시 열어 주세요."
+          }
+        }
+      }
+    },
     "WG_SECTION_TUNNEL" : {
       "localizations" : {
         "en" : {

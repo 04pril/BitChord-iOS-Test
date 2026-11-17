@@ -1,3 +1,5 @@
+> **iOS 테스트 레포** · [테스트 IPA](artifacts/BitChord-1.0.2.ipa) · [음원 직접 연결 테스트 방법](docs/IOS-DIRECT-AUDIO-TEST.md)
+
 <p align="center">
   <img src=".github/assets/icon.png" alt="BitChord 아이콘" width="96" />
 </p>

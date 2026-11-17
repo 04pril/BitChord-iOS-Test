@@ -238,6 +238,7 @@ def external_proxy_tests(harness, tmp, results):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=pathlib.Path)
+    parser.add_argument("--direct-media-only", action="store_true", help="check only the opt-in media session and its separate API session")
     parser.add_argument("--live-profile", type=pathlib.Path,
                         help="real WireGuard .conf: run only the live checks against that server")
     parser.add_argument("--expect-country", default="", help="expected exit country code for --live-profile")
@@ -300,6 +301,14 @@ def main():
                 results.append(name)
                 return proc.stdout
 
+            if args.direct_media_only:
+                if not direct_url:
+                    raise SystemExit("direct media test requires a non-loopback IPv4 address")
+                run("split routing: direct media session and tunneled API", "direct-media", YTMUWG_TEST_DIRECT_MEDIA="1")
+                assert DirectHandler.hits == 1, "the explicit media session did not reach the local origin exactly once"
+                direct.shutdown()
+                return
+
             run("unit: active URLSession proxy, no direct failover, HTTP/3 suppression and redaction", "unit")
             run("unit: disabled -> no hooks", "unit", YTMUWG_TEST_ENABLED="0", YTMUWG_EXPECT_ACTIVE="0")
 
@@ -326,6 +335,9 @@ def main():
                 YTMUWG_TEST_PROFILE=str(tmp / "invalid.conf"), YTMUWG_EXPECT_FAILED="1")
             assert DirectHandler.hits == 0, "direct server was contacted"
             external_proxy_tests(harness, tmp, results)
+            if direct_url:
+                run("split routing: direct media session and tunneled API", "direct-media", YTMUWG_TEST_DIRECT_MEDIA="1")
+                assert DirectHandler.hits == 1, "only the explicit media session may connect directly"
             direct.shutdown()
         finally:
             peer.terminate()

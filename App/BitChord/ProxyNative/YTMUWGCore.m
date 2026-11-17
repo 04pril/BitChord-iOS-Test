@@ -89,6 +89,14 @@ BOOL YTMUWGSettingEnabled(void) {
 }
 void YTMUWGSetSettingEnabled(BOOL enabled) { SetSetting(@"enabled", @(enabled)); }
 
+BOOL YTMUWGSettingDirectMedia(void) {
+#ifdef YTMUWG_TESTING
+    if (TestEnv(@"YTMUWG_TEST_DIRECT_MEDIA")) return [TestEnv(@"YTMUWG_TEST_DIRECT_MEDIA") boolValue];
+#endif
+    return [SettingsDict()[@"testDirectMedia"] boolValue];
+}
+void YTMUWGSetSettingDirectMedia(BOOL enabled) { SetSetting(@"testDirectMedia", @(enabled)); }
+
 BOOL YTMUWGSettingForceNativeStack(void) {
 #ifdef YTMUWG_TESTING
     if (TestEnv(@"YTMUWG_TEST_FORCE_STACK")) return [TestEnv(@"YTMUWG_TEST_FORCE_STACK") boolValue];
@@ -226,8 +234,10 @@ static id CreateProxyConfig(void) {
     return proxy;
 }
 
+static _Thread_local BOOL gBuildingDirectMediaSession;
+
 static void ApplyProxy(NSURLSessionConfiguration *config) {
-    if (!gActive || ![config isKindOfClass:NSURLSessionConfiguration.class]) return;
+    if (gBuildingDirectMediaSession || !gActive || ![config isKindOfClass:NSURLSessionConfiguration.class]) return;
     @try {
         id proxy = CreateProxyConfig();
         if (!proxy) {
@@ -303,6 +313,30 @@ static void (*origSetHTTP3)(id, SEL, BOOL);
 static BOOL (*origGetHTTP3)(id, SEL);
 static id (*origDataURL)(id, SEL, id);
 static id (*origDataURLOptions)(id, SEL, id, NSUInteger, NSError **);
+
+// Only the opt-in Google media reader receives this session. API and login sessions
+// still go through the original hooks, including when their proxy fails.
+NSURLSession *YTMUWGDirectMediaSession(void) {
+    if (!gActive || gBlockAll || ![gKind isEqualToString:YTMUWGKindWireGuard] ||
+        !YTMUWGSettingDirectMedia() || !origEphemeral || !origSessionDelegate || !sSetProxyConfigurations) return nil;
+    gBuildingDirectMediaSession = YES;
+    @try {
+        NSURLSessionConfiguration *c = origEphemeral(NSURLSessionConfiguration.class, @selector(ephemeralSessionConfiguration));
+        c.connectionProxyDictionary = @{};
+        ((void (*)(id, SEL, id))objc_msgSend)(c, sSetProxyConfigurations, @[]);
+        c.URLCache = nil;
+        c.HTTPShouldSetCookies = NO;
+        c.HTTPCookieStorage = nil;
+        c.URLCredentialStorage = nil;
+        c.timeoutIntervalForRequest = 3;
+        c.HTTPMaximumConnectionsPerHost = 16;
+        return origSessionDelegate(NSURLSession.class, @selector(sessionWithConfiguration:delegate:delegateQueue:), c, nil, nil);
+    } @catch (NSException *exception) {
+        return nil;
+    } @finally {
+        gBuildingDirectMediaSession = NO;
+    }
+}
 
 static id HookDefault(id self, SEL _cmd) {
     NSURLSessionConfiguration *c = origDefault(self, _cmd);

@@ -285,6 +285,7 @@ public final class AudioStreamCache: Sendable {
         stream: ResolvedStream,
         session: URLSession = BitChordHTTP.session,
         refresh: HTTPAudioSource.Resolver? = nil,
+        mediaRoute: YouTubeMediaRoute? = nil,
         onRefused: HTTPAudioSource.RefusalHandler? = nil,
         options: [String: Any]? = nil
     ) -> AVURLAsset {
@@ -296,7 +297,7 @@ public final class AudioStreamCache: Sendable {
             if !stream.headers.isEmpty { merged["AVURLAssetHTTPHeaderFieldsKey"] = stream.headers }
             return AVURLAsset(url: stream.url, options: merged)
         }
-        let source = HTTPAudioSource(stream: stream, session: session, refresh: refresh, onRefused: onRefused)
+        let source = HTTPAudioSource(stream: stream, session: session, refresh: refresh, mediaRoute: mediaRoute, onRefused: onRefused)
         return makeAsset(for: key, source: source, options: options)
     }
 
